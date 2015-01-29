@@ -1394,9 +1394,12 @@ static int arizona_startup(struct snd_pcm_substream *substream,
 	else
 		constraint = &arizona_48k_constraint;
 
-	return snd_pcm_hw_constraint_list(substream->runtime, 0,
+	if (substream->runtime)
+		return snd_pcm_hw_constraint_list(substream->runtime, 0,
 					  SNDRV_PCM_HW_PARAM_RATE,
 					  constraint);
+	else
+		return 0;
 }
 
 static void arizona_wm5102_set_dac_comp(struct snd_soc_codec *codec,
