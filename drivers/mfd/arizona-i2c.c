@@ -19,9 +19,115 @@
 #include <linux/slab.h>
 #include <linux/of.h>
 
+#include <linux/gpio.h>
+#include <linux/acpi.h>
 #include <linux/mfd/arizona/core.h>
 
 #include "arizona.h"
+
+/************************************************************/
+#include <linux/input.h>
+#include <linux/platform_device.h>
+#include <linux/regulator/machine.h>
+#include <linux/regulator/fixed.h>
+#include <linux/mfd/arizona/pdata.h>
+#include <linux/mfd/arizona/registers.h>
+
+/***********WM8280 1.8V REGULATOR*************/
+static struct regulator_consumer_supply vflorida1_consumer[] = {
+	REGULATOR_SUPPLY("AVDD", "i2c-INT34C1:00"),
+	REGULATOR_SUPPLY("DBVDD1", "i2c-INT34C1:00"),
+	REGULATOR_SUPPLY("LDOVDD", "i2c-INT34C1:00"),
+	REGULATOR_SUPPLY("CPVDD", "i2c-INT34C1:00"),
+	REGULATOR_SUPPLY("DBVDD2", "i2c-INT34C1:00"),
+	REGULATOR_SUPPLY("DBVDD3", "i2c-INT34C1:00"),
+};
+
+/***********WM8280 5V REGULATOR*************/
+static struct regulator_consumer_supply vflorida2_consumer[] = {
+	REGULATOR_SUPPLY("SPKVDDL", "i2c-INT34C1:00"),
+	REGULATOR_SUPPLY("SPKVDDR", "i2c-INT34C1:00"),
+};
+
+static struct regulator_init_data vflorida1_data = {
+		.constraints = {
+			.always_on = 1,
+		},
+		.num_consumer_supplies	=	ARRAY_SIZE(vflorida1_consumer),
+		.consumer_supplies	=	vflorida1_consumer,
+};
+
+static struct fixed_voltage_config vflorida1_config = {
+	.supply_name	= "DC_1V8",
+	.microvolts	= 1800000,
+	.gpio		= -EINVAL,
+	.init_data	= &vflorida1_data,
+};
+
+static struct platform_device vflorida1_device = {
+	.name = "reg-fixed-voltage",
+	.id = PLATFORM_DEVID_AUTO,
+	.dev = {
+		.platform_data = &vflorida1_config,
+	},
+};
+
+static struct regulator_init_data vflorida2_data = {
+		.constraints = {
+			.always_on = 1,
+		},
+		.num_consumer_supplies	=	ARRAY_SIZE(vflorida2_consumer),
+		.consumer_supplies	=	vflorida2_consumer,
+};
+
+static struct fixed_voltage_config vflorida2_config = {
+	.supply_name	= "DC_5V",
+	.microvolts	= 3700000,
+	.gpio		= -EINVAL,
+	.init_data  = &vflorida2_data,
+};
+
+static struct platform_device vflorida2_device = {
+	.name = "reg-fixed-voltage",
+	.id = PLATFORM_DEVID_AUTO,
+	.dev = {
+		.platform_data = &vflorida2_config,
+	},
+};
+
+/***********WM8280 Codec Driver platform data*************/
+static const struct arizona_micd_range micd_ctp_ranges[] = {
+	{ .max =  11, .key = BTN_0 },
+	{ .max =  28, .key = BTN_1 },
+	{ .max =  54, .key = BTN_2 },
+	{ .max = 100, .key = BTN_3 },
+	{ .max = 186, .key = BTN_4 },
+	{ .max = 430, .key = BTN_5 },
+};
+
+static struct arizona_micd_config micd_modes[] = {
+	/*{Acc Det on Micdet1, Use Micbias2 for detection,
+	 * Set GPIO to 1 to selecte this polarity}*/
+	{ 0, 2, 1 },
+};
+
+static struct arizona_pdata florida_pdata  = {
+	.reset = 0, /*No Reset GPIO from AP, use SW reset*/
+	.ldoena = 0, /*TODO: Add actual GPIO for LDOEN, use SW Control for now*/
+	.irq_flags = IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+	.clk32k_src = ARIZONA_32KZ_MCLK2, /*Onboard OSC provides 32K on MCLK2*/
+	/*IN1 uses both MICBIAS1 and MICBIAS2 based on jack polarity,
+	the below values in dmic_ref only has meaning for DMIC's and not AMIC's*/
+	.dmic_ref = {ARIZONA_DMIC_MICBIAS1, 0, ARIZONA_DMIC_MICVDD, 0},
+	.inmode = {ARIZONA_INMODE_SE, 0, ARIZONA_INMODE_DMIC, 0},
+	.gpio_base = 0, /* Base allocated by gpio core*/
+	.micd_pol_gpio = 2, /* GPIO3 (offset 2 from gpio_base) of the codec*/
+	.micd_configs = micd_modes,
+	.num_micd_configs = ARRAY_SIZE(micd_modes),
+	.micd_force_micbias = true,
+};
+
+/************************************************************/
 
 static int arizona_i2c_probe(struct i2c_client *i2c,
 			     const struct i2c_device_id *id)
@@ -34,7 +140,7 @@ static int arizona_i2c_probe(struct i2c_client *i2c,
 	if (i2c->dev.of_node)
 		type = arizona_of_get_type(&i2c->dev);
 	else
-		type = id->driver_data;
+		type = WM8280;
 
 	switch (type) {
 	case WM5102:
@@ -45,6 +151,13 @@ static int arizona_i2c_probe(struct i2c_client *i2c,
 	case WM8280:
 		if (IS_ENABLED(CONFIG_MFD_WM5110))
 			regmap_config = &wm5110_i2c_regmap;
+		if (i2c->irq < 0) {
+			struct gpio_desc *irq_desc;
+
+			irq_desc = devm_gpiod_get(&i2c->dev, NULL, GPIOD_IN);
+			i2c->irq = gpiod_to_irq(irq_desc);
+		}
+		i2c->dev.platform_data = &florida_pdata;
 		break;
 	case WM8997:
 		if (IS_ENABLED(CONFIG_MFD_WM8997))
@@ -103,18 +216,44 @@ static const struct i2c_device_id arizona_i2c_id[] = {
 };
 MODULE_DEVICE_TABLE(i2c, arizona_i2c_id);
 
+static struct acpi_device_id arizona_acpi_match[] = {
+	{ "INT34C1", WM8280 },
+	{ }
+};
+
 static struct i2c_driver arizona_i2c_driver = {
 	.driver = {
 		.name	= "arizona",
 		.pm	= &arizona_pm_ops,
 		.of_match_table	= of_match_ptr(arizona_of_match),
+		.acpi_match_table = ACPI_PTR(arizona_acpi_match),
 	},
 	.probe		= arizona_i2c_probe,
 	.remove		= arizona_i2c_remove,
 	.id_table	= arizona_i2c_id,
 };
 
-module_i2c_driver(arizona_i2c_driver);
+static int __init arizona_modinit(void)
+{
+	int ret;
+
+	/***********WM8280 Register Regulator*************/
+	platform_device_register(&vflorida1_device);
+	platform_device_register(&vflorida2_device);
+
+	ret = i2c_add_driver(&arizona_i2c_driver);
+
+	return ret;
+}
+
+module_init(arizona_modinit);
+
+static void __exit arizona_modexit(void)
+{
+	i2c_del_driver(&arizona_i2c_driver);
+}
+
+module_exit(arizona_modexit);
 
 MODULE_DESCRIPTION("Arizona I2C bus interface");
 MODULE_AUTHOR("Mark Brown <broonie@opensource.wolfsonmicro.com>");
