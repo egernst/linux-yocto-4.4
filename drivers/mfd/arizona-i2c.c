@@ -94,7 +94,67 @@ static struct platform_device vflorida2_device = {
 		.platform_data = &vflorida2_config,
 	},
 };
+/***********WM8998 1.8V REGULATOR*************/
+static struct regulator_consumer_supply wm8998_consumer1[] = {
+	REGULATOR_SUPPLY("AVDD", "i2c-INT34E0:00"),
+	REGULATOR_SUPPLY("DBVDD1", "i2c-INT34E0:00"),
+	REGULATOR_SUPPLY("LDOVDD", "i2c-INT34E0:00"),
+	REGULATOR_SUPPLY("CPVDD", "i2c-INT34E0:00"),
+	REGULATOR_SUPPLY("DBVDD2", "i2c-INT34E0:00"),
+	REGULATOR_SUPPLY("DBVDD3", "i2c-INT34E0:00"),
+};
 
+/***********WM8998 5V REGULATOR*************/
+static struct regulator_consumer_supply wm8998_consumer2[] = {
+	REGULATOR_SUPPLY("SPKVDDL", "i2c-INT34E0:00"),
+	REGULATOR_SUPPLY("SPKVDDR", "i2c-INT34E0:00"),
+};
+
+static struct regulator_init_data wm8998_data1 = {
+		.constraints = {
+			.always_on = 1,
+		},
+		.num_consumer_supplies	=	ARRAY_SIZE(wm8998_consumer1),
+		.consumer_supplies	=	wm8998_consumer1,
+};
+
+static struct fixed_voltage_config wm8998_config1 = {
+	.supply_name	= "DC_1V8",
+	.microvolts	= 1800000,
+	.gpio		= -EINVAL,
+	.init_data	= &wm8998_data1,
+};
+
+static struct platform_device wm8998_device1 = {
+	.name = "reg-fixed-voltage",
+	.id = PLATFORM_DEVID_AUTO,
+	.dev = {
+		.platform_data = &wm8998_config1,
+	},
+};
+
+static struct regulator_init_data wm8998_data2 = {
+		.constraints = {
+			.always_on = 1,
+		},
+		.num_consumer_supplies	=	ARRAY_SIZE(wm8998_consumer2),
+		.consumer_supplies	=	wm8998_consumer2,
+};
+
+static struct fixed_voltage_config wm8998_config2 = {
+	.supply_name	= "DC_5V",
+	.microvolts	= 3700000,
+	.gpio		= -EINVAL,
+	.init_data  = &wm8998_data2,
+};
+
+static struct platform_device wm8998_device2 = {
+	.name = "reg-fixed-voltage",
+	.id = PLATFORM_DEVID_AUTO,
+	.dev = {
+		.platform_data = &wm8998_config2,
+	},
+};
 /***********WM8280 Codec Driver platform data*************/
 static const struct arizona_micd_range micd_ctp_ranges[] = {
 	{ .max =  11, .key = BTN_0 },
@@ -124,6 +184,36 @@ static struct arizona_pdata florida_pdata  = {
 	.micd_pol_gpio = 2, /* GPIO3 (offset 2 from gpio_base) of the codec*/
 	.micd_configs = micd_modes,
 	.num_micd_configs = ARRAY_SIZE(micd_modes),
+	.micd_detect_debounce = 100,
+	.micd_force_micbias = true,
+};
+
+/***********WM8998 Codec Driver platform data*************/
+static const struct arizona_micd_range micd_ctp_ranges_wm8998[] = {
+	{ .max =  93, .key = BTN_0 },
+	{ .max = 110, .key = BTN_1 },
+	{ .max = 136, .key = BTN_2 },
+	{ .max = 182, .key = BTN_3 },
+	{ .max = 268, .key = BTN_4 },
+	{ .max = 512, .key = BTN_5 },
+};
+
+static struct arizona_pdata wm8998_pdata  = {
+	.reset = 0, /*No Reset GPIO from AP, use SW reset*/
+	.ldoena = 0, /*TODO: Add actual GPIO for LDOEN, use SW Control for now*/
+	.irq_flags = IRQF_TRIGGER_LOW | IRQF_ONESHOT,
+	.clk32k_src = ARIZONA_32KZ_MCLK2, /*Onboard OSC provides 32K on MCLK2*/
+	/*IN1 uses both MICBIAS1 and MICBIAS2 based on jack polarity,
+	the below values in dmic_ref only has meaning for DMICs; not AMICs*/
+	.dmic_ref = {ARIZONA_DMIC_MICBIAS1, 0, ARIZONA_DMIC_MICVDD, 0},
+	.inmode = {ARIZONA_INMODE_SE, 0, ARIZONA_INMODE_DMIC, 0},
+	.gpio_base = 0, /* Base allocated by gpio core*/
+	.micd_ranges = micd_ctp_ranges_wm8998,
+	.num_micd_ranges = ARRAY_SIZE(micd_ctp_ranges_wm8998),
+	.micd_configs = micd_modes,
+	.num_micd_configs = ARRAY_SIZE(micd_modes),
+	.micd_rate = 7,
+	.micd_detect_debounce = 100,
 	.micd_force_micbias = true,
 };
 
@@ -134,13 +224,15 @@ static int arizona_i2c_probe(struct i2c_client *i2c,
 {
 	struct arizona *arizona;
 	const struct regmap_config *regmap_config = NULL;
-	unsigned long type;
+	unsigned long type = 0;
 	int ret;
 
 	if (i2c->dev.of_node)
 		type = arizona_of_get_type(&i2c->dev);
 	else
-		type = WM8280;
+		type = id->driver_data;
+
+	dev_info(&i2c->dev, "%s : device type = %d\n", __func__, (int)type);
 
 	switch (type) {
 	case WM5102:
@@ -167,6 +259,13 @@ static int arizona_i2c_probe(struct i2c_client *i2c,
 	case WM1814:
 		if (IS_ENABLED(CONFIG_MFD_WM8998))
 			regmap_config = &wm8998_i2c_regmap;
+		if (i2c->irq < 0) {
+			struct gpio_desc *irq_desc;
+
+			irq_desc = devm_gpiod_get(&i2c->dev, NULL, GPIOD_IN);
+			i2c->irq = gpiod_to_irq(irq_desc);
+		}
+		i2c->dev.platform_data = &wm8998_pdata;
 		break;
 	default:
 		dev_err(&i2c->dev, "Unknown device type %ld\n", type);
@@ -212,11 +311,13 @@ static const struct i2c_device_id arizona_i2c_id[] = {
 	{ "wm8997", WM8997 },
 	{ "wm8998", WM8998 },
 	{ "wm1814", WM1814 },
+	{ "INT34E0:00", WM8998 },
 	{ }
 };
 MODULE_DEVICE_TABLE(i2c, arizona_i2c_id);
 
 static struct acpi_device_id arizona_acpi_match[] = {
+	{ "INT34C1", WM8280 },
 	{ "INT34C1", WM8280 },
 	{ }
 };
@@ -240,6 +341,9 @@ static int __init arizona_modinit(void)
 	/***********WM8280 Register Regulator*************/
 	platform_device_register(&vflorida1_device);
 	platform_device_register(&vflorida2_device);
+	/***********WM8998 Register Regulator*************/
+	platform_device_register(&wm8998_device1);
+	platform_device_register(&wm8998_device2);
 
 	ret = i2c_add_driver(&arizona_i2c_driver);
 
