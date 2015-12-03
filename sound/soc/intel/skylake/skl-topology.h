@@ -203,7 +203,7 @@ struct skl_module_pin {
 };
 
 struct skl_specific_cfg {
-	bool set_params;
+	u32 set_params;
 	u32 param_id;
 	u32 caps_size;
 	u32 *caps;
@@ -286,7 +286,7 @@ struct skl_module_cfg {
 
 struct skl_algo_data {
 	u32 param_id;
-	bool set_params;
+	u32 set_params;
 	u32 max;
 	char *params;
 };
