@@ -153,8 +153,12 @@ struct hdmi_spec {
 	bool i915_bound; /* was i915 bound in this driver? */
 };
 
+#ifdef CONFIG_SND_HDA_I915
 #define codec_has_acomp(codec) \
 	((codec)->bus->core.audio_component != NULL)
+#else
+#define codec_has_acomp(codec)	false
+#endif
 
 struct hdmi_audio_infoframe {
 	u8 type; /* 0x84 */
