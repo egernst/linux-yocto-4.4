@@ -927,6 +927,46 @@ static int try_to_run_init_process(const char *init_filename)
 	return ret;
 }
 
+#include <linux/spi/spi.h>
+static struct spi_board_info _spi_board_info[] = {
+	{
+		.modalias	= "spidev",
+		.bus_num	= 32766,
+		.chip_select	= 0,
+		.max_speed_hz	= 12000000,
+	},
+	{
+		.modalias	= "spidev",
+		.bus_num	= 32766,
+		.chip_select	= 1,
+		.max_speed_hz	= 12000000,
+	},
+	{
+		.modalias	= "spidev",
+		.bus_num	= 32765,
+		.chip_select	= 0,
+		.max_speed_hz	= 12000000,
+	},
+	{
+		.modalias	= "spidev",
+		.bus_num	= 32765,
+		.chip_select	= 1,
+		.max_speed_hz	= 12000000,
+	},
+	{
+		.modalias	= "spidev",
+		.bus_num	= 32764,
+		.chip_select	= 0,
+		.max_speed_hz	= 12000000,
+	},
+	{
+		.modalias	= "spidev",
+		.bus_num	= 32764,
+		.chip_select	= 1,
+		.max_speed_hz	= 12000000,
+	},
+};
+
 static noinline void __init kernel_init_freeable(void);
 
 static int __ref kernel_init(void *unused)
@@ -942,6 +982,8 @@ static int __ref kernel_init(void *unused)
 	numa_default_policy();
 
 	flush_delayed_fput();
+
+	spi_register_board_info(_spi_board_info, ARRAY_SIZE(_spi_board_info));
 
 	if (ramdisk_execute_command) {
 		ret = run_init_process(ramdisk_execute_command);
