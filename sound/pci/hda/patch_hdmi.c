@@ -298,7 +298,7 @@ static int hdmi_channel_mapping[0x32][8] = {
  * The preceding ones have better chances to be selected by
  * hdmi_channel_allocation().
  */
-static struct cea_channel_speaker_allocation channel_allocations[] = {
+static struct hdac_cea_channel_speaker_allocation channel_allocations[] = {
 /*			  channel:   7     6    5    4    3     2    1    0  */
 { .ca_index = 0x00,  .speakers = {   0,    0,   0,   0,   0,    0,  FR,  FL } },
 				 /* 2.1 */
@@ -669,7 +669,7 @@ static inline void eld_proc_free(struct hdmi_spec_per_pin *per_pin)
 static void init_channel_allocations(void)
 {
 	int i, j;
-	struct cea_channel_speaker_allocation *p;
+	struct hdac_cea_channel_speaker_allocation *p;
 
 	for (i = 0; i < ARRAY_SIZE(channel_allocations); i++) {
 		p = channel_allocations + i;
@@ -777,7 +777,7 @@ static void hdmi_std_setup_channel_mapping(struct hda_codec *codec,
 				       int ca)
 {
 	struct hdmi_spec *spec = codec->spec;
-	struct cea_channel_speaker_allocation *ch_alloc;
+	struct hdac_cea_channel_speaker_allocation *ch_alloc;
 	int i;
 	int err;
 	int order;
@@ -2304,7 +2304,7 @@ static int hdmi_chmap_ctl_info(struct snd_kcontrol *kcontrol,
 }
 
 static int hdmi_chmap_cea_alloc_validate_get_type(struct hdac_chmap *chmap,
-		struct cea_channel_speaker_allocation *cap, int channels)
+		struct hdac_cea_channel_speaker_allocation *cap, int channels)
 {
 	/* If the speaker allocation matches the channel count, it is OK.*/
 	if (cap->channels != channels)
@@ -2314,8 +2314,9 @@ static int hdmi_chmap_cea_alloc_validate_get_type(struct hdac_chmap *chmap,
 	return SNDRV_CTL_TLVT_CHMAP_VAR;
 }
 
-static void hdmi_cea_alloc_to_tlv_chmap(struct cea_channel_speaker_allocation *cap,
-					unsigned int *chmap, int channels)
+static void hdmi_cea_alloc_to_tlv_chmap(
+		struct hdac_cea_channel_speaker_allocation *cap,
+		unsigned int *chmap, int channels)
 {
 	int count = 0;
 	int c;
@@ -2385,7 +2386,7 @@ static int hdmi_chmap_ctl_tlv(struct snd_kcontrol *kcontrol, int op_flag,
 	dst = tlv + 2;
 	for (chs = 2; chs <= chmap->channels_max; chs++) {
 		int i;
-		struct cea_channel_speaker_allocation *cap;
+		struct hdac_cea_channel_speaker_allocation *cap;
 		cap = channel_allocations;
 		for (i = 0; i < ARRAY_SIZE(channel_allocations); i++, cap++) {
 			int chs_bytes = chs * 4;
@@ -3433,7 +3434,7 @@ static int patch_nvhdmi_8ch_7x(struct hda_codec *codec)
  * - 0x10de0040
  */
 static int nvhdmi_chmap_cea_alloc_validate_get_type(struct hdac_chmap *chmap,
-		struct cea_channel_speaker_allocation *cap, int channels)
+		struct hdac_cea_channel_speaker_allocation *cap, int channels)
 {
 	if (cap->ca_index == 0x00 && channels == 2)
 		return SNDRV_CTL_TLVT_CHMAP_FIXED;
@@ -3714,7 +3715,7 @@ static int atihdmi_paired_swap_fc_lfe(int pos)
 
 static int atihdmi_paired_chmap_validate(int ca, int chs, unsigned char *map)
 {
-	struct cea_channel_speaker_allocation *cap;
+	struct hdac_cea_channel_speaker_allocation *cap;
 	int i, j;
 
 	/* check that only channel pairs need to be remapped on old pre-rev3 ATI/AMD */
@@ -3825,7 +3826,7 @@ static int atihdmi_pin_get_slot_channel(struct hda_codec *codec, hda_nid_t pin_n
 
 static int atihdmi_paired_chmap_cea_alloc_validate_get_type(
 		struct hdac_chmap *chmap,
-		struct cea_channel_speaker_allocation *cap,
+		struct hdac_cea_channel_speaker_allocation *cap,
 		int channels)
 {
 	int c;
@@ -3853,8 +3854,9 @@ static int atihdmi_paired_chmap_cea_alloc_validate_get_type(
 	return SNDRV_CTL_TLVT_CHMAP_PAIRED;
 }
 
-static void atihdmi_paired_cea_alloc_to_tlv_chmap(struct cea_channel_speaker_allocation *cap,
-						  unsigned int *chmap, int channels)
+static void atihdmi_paired_cea_alloc_to_tlv_chmap(
+		struct hdac_cea_channel_speaker_allocation *cap,
+		unsigned int *chmap, int channels)
 {
 	/* produce paired maps for pre-rev3 ATI/AMD codecs */
 	int count = 0;
