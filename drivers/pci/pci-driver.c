@@ -777,7 +777,12 @@ static int pci_pm_suspend_noirq(struct device *dev)
 
 	if (!pci_dev->state_saved) {
 		pci_save_state(pci_dev);
-		if (!pci_has_subordinate(pci_dev))
+		/*
+		 * Check if given device can go to low power state. Currently
+		 * we allow normal PCI devices and PCI bridges if their
+		 * bridge_d3 is set.
+		 */
+		if (!pci_has_subordinate(pci_dev) || pci_dev->bridge_d3)
 			pci_prepare_to_sleep(pci_dev);
 	}
 
@@ -1144,7 +1149,6 @@ static int pci_pm_runtime_suspend(struct device *dev)
 		return -ENOSYS;
 
 	pci_dev->state_saved = false;
-	pci_dev->no_d3cold = false;
 	error = pm->runtime_suspend(dev);
 	if (error) {
 		/*
@@ -1161,8 +1165,6 @@ static int pci_pm_runtime_suspend(struct device *dev)
 
 		return error;
 	}
-	if (!pci_dev->d3cold_allowed)
-		pci_dev->no_d3cold = true;
 
 	pci_fixup_device(pci_fixup_suspend, pci_dev);
 
