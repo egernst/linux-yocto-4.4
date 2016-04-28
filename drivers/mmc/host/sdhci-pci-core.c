@@ -357,6 +357,18 @@ out:
 	return ret;
 }
 
+
+static int bxt_emmc_probe_slot(struct sdhci_pci_slot *slot)
+{
+	slot->host->mmc->caps |= MMC_CAP_8_BIT_DATA | MMC_CAP_NONREMOVABLE |
+				 MMC_CAP_1_8V_DDR | MMC_CAP_WAIT_WHILE_BUSY;
+
+	slot->host->mmc->caps2 |= MMC_CAP2_HC_ERASE_SZ | MMC_CAP2_HS400_1_8V |
+				  MMC_CAP2_HS200_1_8V_SDR;
+
+	return 0;
+}
+
 static int byt_emmc_probe_slot(struct sdhci_pci_slot *slot)
 {
 	slot->host->mmc->caps |= MMC_CAP_8_BIT_DATA | MMC_CAP_NONREMOVABLE |
@@ -393,6 +405,13 @@ static int byt_sd_probe_slot(struct sdhci_pci_slot *slot)
 
 	return 0;
 }
+
+static const struct sdhci_pci_fixes sdhci_intel_bxt_emmc = {
+	.allow_runtime_pm = true,
+	.quirks2	= SDHCI_QUIRK2_PRESET_VALUE_BROKEN |
+			  SDHCI_QUIRK2_CAPS_BIT63_FOR_HS400,
+	.probe_slot     = bxt_emmc_probe_slot,
+};
 
 static const struct sdhci_pci_fixes sdhci_intel_byt_emmc = {
 	.allow_runtime_pm = true,
@@ -1174,7 +1193,7 @@ static const struct pci_device_id pci_ids[] = {
 		.device		= PCI_DEVICE_ID_INTEL_BXTM_EMMC,
 		.subvendor	= PCI_ANY_ID,
 		.subdevice	= PCI_ANY_ID,
-		.driver_data	= (kernel_ulong_t)&sdhci_intel_byt_emmc,
+		.driver_data	= (kernel_ulong_t)&sdhci_intel_bxt_emmc,
 	},
 
 	{
