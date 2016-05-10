@@ -666,6 +666,8 @@ static int skl_probe(struct pci_dev *pci,
 	pci_set_drvdata(skl->pci, ebus);
 
 	/* check if dsp is there */
+	WARN_ON(!ebus->ppcap);
+
 	if (ebus->ppcap) {
 		err = skl_machine_device_register(skl,
 				  (void *)pci_id->driver_data);
