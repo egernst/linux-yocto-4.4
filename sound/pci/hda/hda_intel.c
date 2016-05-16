@@ -365,7 +365,8 @@ enum {
 
 #define IS_SKL(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0xa170)
 #define IS_SKL_LP(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0x9d70)
-#define IS_BXT(pci) ((pci)->vendor == 0x8086 && (pci)->device == 0x5a98)
+#define IS_BXT(pci) ((pci)->vendor == 0x8086 && (((pci)->device == 0x5a98) || \
+		    ((pci)->device == 0x1a98)))
 #define IS_SKL_PLUS(pci) (IS_SKL(pci) || IS_SKL_LP(pci) || IS_BXT(pci))
 
 static char *driver_short_names[] = {
