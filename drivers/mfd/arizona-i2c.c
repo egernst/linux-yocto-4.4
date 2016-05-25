@@ -349,8 +349,7 @@ static int __init arizona_modinit(void)
 
 	return ret;
 }
-
-module_init(arizona_modinit);
+subsys_initcall(arizona_modinit);
 
 static void __exit arizona_modexit(void)
 {
