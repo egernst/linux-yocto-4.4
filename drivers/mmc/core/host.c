@@ -81,6 +81,7 @@ void mmc_retune_pause(struct mmc_host *host)
 		mmc_retune_hold(host);
 	}
 }
+EXPORT_SYMBOL(mmc_retune_pause);
 
 void mmc_retune_unpause(struct mmc_host *host)
 {
@@ -89,6 +90,7 @@ void mmc_retune_unpause(struct mmc_host *host)
 		mmc_retune_release(host);
 	}
 }
+EXPORT_SYMBOL(mmc_retune_unpause);
 
 void mmc_retune_disable(struct mmc_host *host)
 {
