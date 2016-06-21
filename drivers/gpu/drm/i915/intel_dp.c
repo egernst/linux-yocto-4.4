@@ -3776,7 +3776,7 @@ intel_dp_get_dpcd(struct intel_dp *intel_dp)
 	 * downstream port information. So, an early return here saves
 	 * time from performing other operations which are not required.
 	 */
-	if (!intel_dp->sink_count)
+	if (!is_edp(intel_dp) && !intel_dp->sink_count)
 		return false;
 
 	/* Check if the panel supports PSR */
@@ -4309,6 +4309,9 @@ intel_dp_detect_dpcd(struct intel_dp *intel_dp)
 	if (!intel_dp_get_dpcd(intel_dp))
 		return connector_status_disconnected;
 
+	if (is_edp(intel_dp))
+		return connector_status_connected;
+
 	/* if there's no downstream port, we're done */
 	if (!(dpcd[DP_DOWNSTREAMPORT_PRESENT] & DP_DWN_STRM_PORT_PRESENT))
 		return connector_status_connected;
@@ -4578,6 +4581,15 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 		intel_dp->compliance_test_type = 0;
 		intel_dp->compliance_test_data = 0;
 
+		if (intel_dp->is_mst) {
+			DRM_DEBUG_KMS("MST device may have disappeared %d vs %d\n",
+				      intel_dp->is_mst,
+				      intel_dp->mst_mgr.mst_state);
+			intel_dp->is_mst = false;
+			drm_dp_mst_topology_mgr_set_mst(&intel_dp->mst_mgr,
+							intel_dp->is_mst);
+		}
+
 		goto out;
 	}
 
@@ -4635,20 +4647,9 @@ intel_dp_long_pulse(struct intel_connector *intel_connector)
 	}
 
 out:
-	if (status != connector_status_connected) {
+	if ((status != connector_status_connected) &&
+	    (intel_dp->is_mst == false))
 		intel_dp_unset_edid(intel_dp);
-		/*
-		 * If we were in MST mode, and device is not there,
-		 * get out of MST mode
-		 */
-		if (intel_dp->is_mst) {
-			DRM_DEBUG_KMS("MST device may have disappeared %d vs %d\n",
-				      intel_dp->is_mst, intel_dp->mst_mgr.mst_state);
-			intel_dp->is_mst = false;
-			drm_dp_mst_topology_mgr_set_mst(&intel_dp->mst_mgr,
-							intel_dp->is_mst);
-		}
-	}
 
 	intel_display_power_put(to_i915(dev), power_domain);
 	return;
@@ -4819,6 +4820,11 @@ intel_dp_set_property(struct drm_connector *connector,
 	    property == connector->dev->mode_config.scaling_mode_property) {
 		if (val == DRM_MODE_SCALE_NONE) {
 			DRM_DEBUG_KMS("no scaling not supported\n");
+			return -EINVAL;
+		}
+		if (HAS_GMCH_DISPLAY(dev_priv) &&
+		    val == DRM_MODE_SCALE_CENTER) {
+			DRM_DEBUG_KMS("centering not supported\n");
 			return -EINVAL;
 		}
 

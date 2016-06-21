@@ -745,7 +745,7 @@ static void gen8_ppgtt_clear_pte_range(struct i915_address_space *vm,
 			num_entries--;
 		}
 
-		kunmap_px(ppgtt, pt);
+		kunmap_px(ppgtt, pt_vaddr);
 
 		pte = 0;
 		if (++pde == I915_PDES) {
@@ -905,11 +905,10 @@ static int gen8_init_scratch(struct i915_address_space *vm)
 static int gen8_ppgtt_notify_vgt(struct i915_hw_ppgtt *ppgtt, bool create)
 {
 	enum vgt_g2v_type msg;
-	struct drm_device *dev = ppgtt->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(ppgtt->base.dev);
 	int i;
 
-	if (USES_FULL_48BIT_PPGTT(dev)) {
+	if (USES_FULL_48BIT_PPGTT(dev_priv)) {
 		u64 daddr = px_dma(&ppgtt->pml4);
 
 		I915_WRITE(vgtif_reg(pdp[0].lo), lower_32_bits(daddr));

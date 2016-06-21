@@ -1530,44 +1530,46 @@ static void assert_pch_ports_disabled(struct drm_i915_private *dev_priv,
 	assert_pch_hdmi_disabled(dev_priv, pipe, PCH_HDMID);
 }
 
+static void _vlv_enable_pll(struct intel_crtc *crtc,
+			    const struct intel_crtc_state *pipe_config)
+{
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
+
+	I915_WRITE(DPLL(pipe), pipe_config->dpll_hw_state.dpll);
+	POSTING_READ(DPLL(pipe));
+	udelay(150);
+
+	if (wait_for(((I915_READ(DPLL(pipe)) & DPLL_LOCK_VLV) == DPLL_LOCK_VLV), 1))
+		DRM_ERROR("DPLL %d failed to lock\n", pipe);
+}
+
 static void vlv_enable_pll(struct intel_crtc *crtc,
 			   const struct intel_crtc_state *pipe_config)
 {
-	struct drm_device *dev = crtc->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	enum pipe pipe = crtc->pipe;
-	i915_reg_t reg = DPLL(pipe);
-	u32 dpll = pipe_config->dpll_hw_state.dpll;
 
 	assert_pipe_disabled(dev_priv, pipe);
 
 	/* PLL is protected by panel, make sure we can write it */
 	assert_panel_unlocked(dev_priv, pipe);
 
-	I915_WRITE(reg, dpll);
-	POSTING_READ(reg);
-	udelay(150);
-
-	if (wait_for(((I915_READ(reg) & DPLL_LOCK_VLV) == DPLL_LOCK_VLV), 1))
-		DRM_ERROR("DPLL %d failed to lock\n", pipe);
+	if (pipe_config->dpll_hw_state.dpll & DPLL_VCO_ENABLE)
+		_vlv_enable_pll(crtc, pipe_config);
 
 	I915_WRITE(DPLL_MD(pipe), pipe_config->dpll_hw_state.dpll_md);
 	POSTING_READ(DPLL_MD(pipe));
 }
 
-static void chv_enable_pll(struct intel_crtc *crtc,
-			   const struct intel_crtc_state *pipe_config)
+
+static void _chv_enable_pll(struct intel_crtc *crtc,
+			    const struct intel_crtc_state *pipe_config)
 {
-	struct drm_device *dev = crtc->base.dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
 	enum pipe pipe = crtc->pipe;
 	enum dpio_channel port = vlv_pipe_to_channel(pipe);
 	u32 tmp;
-
-	assert_pipe_disabled(dev_priv, pipe);
-
-	/* PLL is protected by panel, make sure we can write it */
-	assert_panel_unlocked(dev_priv, pipe);
 
 	mutex_lock(&dev_priv->sb_lock);
 
@@ -1589,6 +1591,21 @@ static void chv_enable_pll(struct intel_crtc *crtc,
 	/* Check PLL is locked */
 	if (wait_for(((I915_READ(DPLL(pipe)) & DPLL_LOCK_VLV) == DPLL_LOCK_VLV), 1))
 		DRM_ERROR("PLL %d failed to lock\n", pipe);
+}
+
+static void chv_enable_pll(struct intel_crtc *crtc,
+			   const struct intel_crtc_state *pipe_config)
+{
+	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+	enum pipe pipe = crtc->pipe;
+
+	assert_pipe_disabled(dev_priv, pipe);
+
+	/* PLL is protected by panel, make sure we can write it */
+	assert_panel_unlocked(dev_priv, pipe);
+
+	if (pipe_config->dpll_hw_state.dpll & DPLL_VCO_ENABLE)
+		_chv_enable_pll(crtc, pipe_config);
 
 	if (pipe != PIPE_A) {
 		/*
@@ -3198,12 +3215,12 @@ void intel_finish_reset(struct drm_device *dev)
 static bool intel_crtc_has_pending_flip(struct drm_crtc *crtc)
 {
 	struct drm_device *dev = crtc->dev;
-	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct intel_crtc *intel_crtc = to_intel_crtc(crtc);
+	unsigned reset_counter;
 	bool pending;
 
-	if (i915_reset_in_progress(&dev_priv->gpu_error) ||
-	    intel_crtc->reset_counter != atomic_read(&dev_priv->gpu_error.reset_counter))
+	reset_counter = i915_reset_counter(&to_i915(dev)->gpu_error);
+	if (intel_crtc->reset_counter != reset_counter)
 		return false;
 
 	spin_lock_irq(&dev->event_lock);
@@ -3805,9 +3822,7 @@ static void page_flip_completed(struct intel_crtc *intel_crtc)
 	intel_crtc->unpin_work = NULL;
 
 	if (work->event)
-		drm_send_vblank_event(intel_crtc->base.dev,
-				      intel_crtc->pipe,
-				      work->event);
+		drm_crtc_send_vblank_event(&intel_crtc->base, work->event);
 
 	drm_crtc_vblank_put(&intel_crtc->base);
 
@@ -5330,9 +5345,8 @@ static void intel_update_cdclk(struct drm_device *dev)
 		intel_update_max_cdclk(dev);
 }
 
-static void broxton_set_cdclk(struct drm_device *dev, int frequency)
+static void broxton_set_cdclk(struct drm_i915_private *dev_priv, int frequency)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
 	uint32_t divider;
 	uint32_t ratio;
 	uint32_t current_freq;
@@ -5446,32 +5460,45 @@ static void broxton_set_cdclk(struct drm_device *dev, int frequency)
 		return;
 	}
 
-	intel_update_cdclk(dev);
+	intel_update_cdclk(dev_priv->dev);
 }
 
-void broxton_init_cdclk(struct drm_device *dev)
+static bool broxton_cdclk_is_enabled(struct drm_i915_private *dev_priv)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
-	uint32_t val;
+	if (!(I915_READ(BXT_DE_PLL_ENABLE) & BXT_DE_PLL_PLL_ENABLE))
+		return false;
 
-	/*
-	 * NDE_RSTWRN_OPT RST PCH Handshake En must always be 0b on BXT
-	 * or else the reset will hang because there is no PCH to respond.
-	 * Move the handshake programming to initialization sequence.
-	 * Previously was left up to BIOS.
-	 */
-	val = I915_READ(HSW_NDE_RSTWRN_OPT);
-	val &= ~RESET_PCH_HANDSHAKE_ENABLE;
-	I915_WRITE(HSW_NDE_RSTWRN_OPT, val);
+	/* TODO: Check for a valid CDCLK rate */
 
-	/* Enable PG1 for cdclk */
-	intel_display_power_get(dev_priv, POWER_DOMAIN_PLLS);
+	if (!(I915_READ(DBUF_CTL) & DBUF_POWER_REQUEST)) {
+		DRM_DEBUG_DRIVER("CDCLK enabled, but DBUF power not requested\n");
 
+		return false;
+	}
+
+	if (!(I915_READ(DBUF_CTL) & DBUF_POWER_STATE)) {
+		DRM_DEBUG_DRIVER("CDCLK enabled, but DBUF power hasn't settled\n");
+
+		return false;
+	}
+
+	return true;
+}
+
+bool broxton_cdclk_verify_state(struct drm_i915_private *dev_priv)
+{
+	return broxton_cdclk_is_enabled(dev_priv);
+}
+
+void broxton_init_cdclk(struct drm_i915_private *dev_priv)
+{
 	/* check if cd clock is enabled */
-	if (I915_READ(BXT_DE_PLL_ENABLE) & BXT_DE_PLL_PLL_ENABLE) {
-		DRM_DEBUG_KMS("Display already initialized\n");
+	if (broxton_cdclk_is_enabled(dev_priv)) {
+		DRM_DEBUG_KMS("CDCLK already enabled, won't reprogram it\n");
 		return;
 	}
+
+	DRM_DEBUG_KMS("CDCLK not enabled, enabling it\n");
 
 	/*
 	 * FIXME:
@@ -5480,7 +5507,7 @@ void broxton_init_cdclk(struct drm_device *dev)
 	 * - check if setting the max (or any) cdclk freq is really necessary
 	 *   here, it belongs to modeset time
 	 */
-	broxton_set_cdclk(dev, 624000);
+	broxton_set_cdclk(dev_priv, 624000);
 
 	I915_WRITE(DBUF_CTL, I915_READ(DBUF_CTL) | DBUF_POWER_REQUEST);
 	POSTING_READ(DBUF_CTL);
@@ -5491,10 +5518,8 @@ void broxton_init_cdclk(struct drm_device *dev)
 		DRM_ERROR("DBuf power enable timeout!\n");
 }
 
-void broxton_uninit_cdclk(struct drm_device *dev)
+void broxton_uninit_cdclk(struct drm_i915_private *dev_priv)
 {
-	struct drm_i915_private *dev_priv = dev->dev_private;
-
 	I915_WRITE(DBUF_CTL, I915_READ(DBUF_CTL) & ~DBUF_POWER_REQUEST);
 	POSTING_READ(DBUF_CTL);
 
@@ -5504,9 +5529,7 @@ void broxton_uninit_cdclk(struct drm_device *dev)
 		DRM_ERROR("DBuf power disable timeout!\n");
 
 	/* Set minimum (bypass) frequency, in effect turning off the DE PLL */
-	broxton_set_cdclk(dev, 19200);
-
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS);
+	broxton_set_cdclk(dev_priv, 19200);
 }
 
 static const struct skl_cdclk_entry {
@@ -6073,14 +6096,12 @@ static void valleyview_crtc_enable(struct drm_crtc *crtc)
 		if (encoder->pre_pll_enable)
 			encoder->pre_pll_enable(encoder);
 
-	if (!intel_crtc->config->has_dsi_encoder) {
-		if (IS_CHERRYVIEW(dev)) {
-			chv_prepare_pll(intel_crtc, intel_crtc->config);
-			chv_enable_pll(intel_crtc, intel_crtc->config);
-		} else {
-			vlv_prepare_pll(intel_crtc, intel_crtc->config);
-			vlv_enable_pll(intel_crtc, intel_crtc->config);
-		}
+	if (IS_CHERRYVIEW(dev)) {
+		chv_prepare_pll(intel_crtc, intel_crtc->config);
+		chv_enable_pll(intel_crtc, intel_crtc->config);
+	} else {
+		vlv_prepare_pll(intel_crtc, intel_crtc->config);
+		vlv_enable_pll(intel_crtc, intel_crtc->config);
 	}
 
 	for_each_encoder_on_crtc(dev, crtc, encoder)
@@ -6118,7 +6139,7 @@ static void i9xx_crtc_enable(struct drm_crtc *crtc)
 	struct intel_encoder *encoder;
 	struct intel_crtc_state *pipe_config =
 		to_intel_crtc_state(crtc->state);
-	int pipe = intel_crtc->pipe;
+	enum pipe pipe = intel_crtc->pipe;
 
 	if (WARN_ON(intel_crtc->active))
 		return;
@@ -7174,10 +7195,14 @@ static void vlv_compute_dpll(struct intel_crtc *crtc,
 			     struct intel_crtc_state *pipe_config)
 {
 	pipe_config->dpll_hw_state.dpll = DPLL_INTEGRATED_REF_CLK_VLV |
-		DPLL_REF_CLK_ENABLE_VLV | DPLL_VGA_MODE_DIS |
-		DPLL_VCO_ENABLE | DPLL_EXT_BUFFER_ENABLE_VLV;
+		DPLL_REF_CLK_ENABLE_VLV | DPLL_VGA_MODE_DIS;
 	if (crtc->pipe != PIPE_A)
 		pipe_config->dpll_hw_state.dpll |= DPLL_INTEGRATED_CRI_CLK_VLV;
+
+	/* DPLL not used with DSI, but still need the rest set up */
+	if (!pipe_config->has_dsi_encoder)
+		pipe_config->dpll_hw_state.dpll |= DPLL_VCO_ENABLE |
+			DPLL_EXT_BUFFER_ENABLE_VLV;
 
 	pipe_config->dpll_hw_state.dpll_md =
 		(pipe_config->pixel_multiplier - 1) << DPLL_MD_UDI_MULTIPLIER_SHIFT;
@@ -7187,10 +7212,13 @@ static void chv_compute_dpll(struct intel_crtc *crtc,
 			     struct intel_crtc_state *pipe_config)
 {
 	pipe_config->dpll_hw_state.dpll = DPLL_SSC_REF_CLK_CHV |
-		DPLL_REF_CLK_ENABLE_VLV | DPLL_VGA_MODE_DIS |
-		DPLL_VCO_ENABLE;
+		DPLL_REF_CLK_ENABLE_VLV | DPLL_VGA_MODE_DIS;
 	if (crtc->pipe != PIPE_A)
 		pipe_config->dpll_hw_state.dpll |= DPLL_INTEGRATED_CRI_CLK_VLV;
+
+	/* DPLL not used with DSI, but still need the rest set up */
+	if (!pipe_config->has_dsi_encoder)
+		pipe_config->dpll_hw_state.dpll |= DPLL_VCO_ENABLE;
 
 	pipe_config->dpll_hw_state.dpll_md =
 		(pipe_config->pixel_multiplier - 1) << DPLL_MD_UDI_MULTIPLIER_SHIFT;
@@ -7201,10 +7229,19 @@ static void vlv_prepare_pll(struct intel_crtc *crtc,
 {
 	struct drm_device *dev = crtc->base.dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	int pipe = crtc->pipe;
+	enum pipe pipe = crtc->pipe;
 	u32 mdiv;
 	u32 bestn, bestm1, bestm2, bestp1, bestp2;
 	u32 coreclk, reg_val;
+
+	/* Enable Refclk */
+	I915_WRITE(DPLL(pipe),
+		   pipe_config->dpll_hw_state.dpll &
+		   ~(DPLL_VCO_ENABLE | DPLL_EXT_BUFFER_ENABLE_VLV));
+
+	/* No need to actually set up the DPLL with DSI */
+	if ((pipe_config->dpll_hw_state.dpll & DPLL_VCO_ENABLE) == 0)
+		return;
 
 	mutex_lock(&dev_priv->sb_lock);
 
@@ -7292,13 +7329,20 @@ static void chv_prepare_pll(struct intel_crtc *crtc,
 {
 	struct drm_device *dev = crtc->base.dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
-	int pipe = crtc->pipe;
-	i915_reg_t dpll_reg = DPLL(crtc->pipe);
+	enum pipe pipe = crtc->pipe;
 	enum dpio_channel port = vlv_pipe_to_channel(pipe);
 	u32 loopfilter, tribuf_calcntr;
 	u32 bestn, bestm1, bestm2, bestp1, bestp2, bestm2_frac;
 	u32 dpio_val;
 	int vco;
+
+	/* Enable Refclk and SSC */
+	I915_WRITE(DPLL(pipe),
+		   pipe_config->dpll_hw_state.dpll & ~DPLL_VCO_ENABLE);
+
+	/* No need to actually set up the DPLL with DSI */
+	if ((pipe_config->dpll_hw_state.dpll & DPLL_VCO_ENABLE) == 0)
+		return;
 
 	bestn = pipe_config->dpll.n;
 	bestm2_frac = pipe_config->dpll.m2 & 0x3fffff;
@@ -7309,12 +7353,6 @@ static void chv_prepare_pll(struct intel_crtc *crtc,
 	vco = pipe_config->dpll.vco;
 	dpio_val = 0;
 	loopfilter = 0;
-
-	/*
-	 * Enable Refclk and SSC
-	 */
-	I915_WRITE(dpll_reg,
-		   pipe_config->dpll_hw_state.dpll & ~DPLL_VCO_ENABLE);
 
 	mutex_lock(&dev_priv->sb_lock);
 
@@ -7930,9 +7968,6 @@ static int chv_crtc_compute_clock(struct intel_crtc *crtc,
 	memset(&crtc_state->dpll_hw_state, 0,
 	       sizeof(crtc_state->dpll_hw_state));
 
-	if (crtc_state->has_dsi_encoder)
-		return 0;
-
 	if (!crtc_state->clock_set &&
 	    !chv_find_best_dpll(limit, crtc_state, crtc_state->port_clock,
 				refclk, NULL, &crtc_state->dpll)) {
@@ -7953,9 +7988,6 @@ static int vlv_crtc_compute_clock(struct intel_crtc *crtc,
 
 	memset(&crtc_state->dpll_hw_state, 0,
 	       sizeof(crtc_state->dpll_hw_state));
-
-	if (crtc_state->has_dsi_encoder)
-		return 0;
 
 	if (!crtc_state->clock_set &&
 	    !vlv_find_best_dpll(limit, crtc_state, crtc_state->port_clock,
@@ -9538,7 +9570,7 @@ static void broxton_modeset_commit_cdclk(struct drm_atomic_state *old_state)
 		to_intel_atomic_state(old_state);
 	unsigned int req_cdclk = old_intel_state->dev_cdclk;
 
-	broxton_set_cdclk(dev, req_cdclk);
+	broxton_set_cdclk(to_i915(dev), req_cdclk);
 }
 
 /* compute the max rate for new configuration */
@@ -10908,9 +10940,10 @@ static bool page_flip_finished(struct intel_crtc *crtc)
 {
 	struct drm_device *dev = crtc->base.dev;
 	struct drm_i915_private *dev_priv = dev->dev_private;
+	unsigned reset_counter;
 
-	if (i915_reset_in_progress(&dev_priv->gpu_error) ||
-	    crtc->reset_counter != atomic_read(&dev_priv->gpu_error.reset_counter))
+	reset_counter = i915_reset_counter(&dev_priv->gpu_error);
+	if (crtc->reset_counter != reset_counter)
 		return true;
 
 	/*
@@ -11364,7 +11397,6 @@ static void intel_mmio_flip_work_func(struct work_struct *work)
 
 	if (mmio_flip->req) {
 		WARN_ON(__i915_wait_request(mmio_flip->req,
-					    mmio_flip->crtc->reset_counter,
 					    false, NULL,
 					    &mmio_flip->i915->rps.mmioflips));
 		i915_gem_request_unreference__unlocked(mmio_flip->req);
@@ -11572,8 +11604,13 @@ static int intel_crtc_page_flip(struct drm_crtc *crtc,
 	if (ret)
 		goto cleanup;
 
+	intel_crtc->reset_counter = i915_reset_counter(&dev_priv->gpu_error);
+	if (__i915_reset_in_progress_or_wedged(intel_crtc->reset_counter)) {
+		ret = -EIO;
+		goto cleanup;
+	}
+
 	atomic_inc(&intel_crtc->unpin_work_count);
-	intel_crtc->reset_counter = atomic_read(&dev_priv->gpu_error.reset_counter);
 
 	if (INTEL_INFO(dev)->gen >= 5 || IS_G4X(dev))
 		work->flip_count = I915_READ(PIPE_FLIPCOUNT_G4X(pipe)) + 1;
@@ -11659,7 +11696,7 @@ cleanup_unpin:
 	intel_unpin_fb_obj(fb, crtc->primary->state->rotation);
 cleanup_pending:
 	if (!IS_ERR_OR_NULL(request))
-		i915_gem_request_cancel(request);
+		i915_add_request_no_flush(request);
 	atomic_dec(&intel_crtc->unpin_work_count);
 	mutex_unlock(&dev->struct_mutex);
 cleanup:
@@ -11709,7 +11746,7 @@ retry:
 
 		if (ret == 0 && event) {
 			spin_lock_irq(&dev->event_lock);
-			drm_send_vblank_event(dev, pipe, event);
+			drm_crtc_send_vblank_event(crtc, event);
 			spin_unlock_irq(&dev->event_lock);
 		}
 	}
@@ -12726,6 +12763,9 @@ intel_pipe_config_compare(struct drm_device *dev,
 	PIPE_CONF_CHECK_X(dpll_hw_state.cfgcr1);
 	PIPE_CONF_CHECK_X(dpll_hw_state.cfgcr2);
 
+	PIPE_CONF_CHECK_X(dsi_pll.ctrl);
+	PIPE_CONF_CHECK_X(dsi_pll.div);
+
 	if (IS_G4X(dev) || INTEL_INFO(dev)->gen >= 5)
 		PIPE_CONF_CHECK_I(pipe_bpp);
 
@@ -13406,6 +13446,9 @@ static int intel_atomic_prepare_commit(struct drm_device *dev,
 	}
 
 	for_each_crtc_in_state(state, crtc, crtc_state, i) {
+		if (state->legacy_cursor_update)
+			continue;
+
 		ret = intel_crtc_wait_for_pending_flips(crtc);
 		if (ret)
 			return ret;
@@ -13419,12 +13462,9 @@ static int intel_atomic_prepare_commit(struct drm_device *dev,
 		return ret;
 
 	ret = drm_atomic_helper_prepare_planes(dev, state);
-	if (!ret && !async && !i915_reset_in_progress(&dev_priv->gpu_error)) {
-		u32 reset_counter;
+	mutex_unlock(&dev->struct_mutex);
 
-		reset_counter = atomic_read(&dev_priv->gpu_error.reset_counter);
-		mutex_unlock(&dev->struct_mutex);
-
+	if (!ret && !async) {
 		for_each_plane_in_state(state, plane, plane_state, i) {
 			struct intel_plane_state *intel_plane_state =
 				to_intel_plane_state(plane_state);
@@ -13433,25 +13473,18 @@ static int intel_atomic_prepare_commit(struct drm_device *dev,
 				continue;
 
 			ret = __i915_wait_request(intel_plane_state->wait_req,
-						  reset_counter, true,
-						  NULL, NULL);
-
-			/* Swallow -EIO errors to allow updates during hw lockup. */
-			if (ret == -EIO)
-				ret = 0;
-
-			if (ret)
+						  true, NULL, NULL);
+			if (ret) {
+				/* Any hang should be swallowed by the wait */
+				WARN_ON(ret == -EIO);
+				mutex_lock(&dev->struct_mutex);
+				drm_atomic_helper_cleanup_planes(dev, state);
+				mutex_unlock(&dev->struct_mutex);
 				break;
+			}
 		}
-
-		if (!ret)
-			return 0;
-
-		mutex_lock(&dev->struct_mutex);
-		drm_atomic_helper_cleanup_planes(dev, state);
 	}
 
-	mutex_unlock(&dev->struct_mutex);
 	return ret;
 }
 
@@ -13493,7 +13526,7 @@ static void intel_atomic_wait_for_vblanks(struct drm_device *dev,
 					drm_crtc_vblank_count(crtc),
 				msecs_to_jiffies(50));
 
-		WARN_ON(!lret);
+		WARN(!lret, "pipe %c vblank wait timed out\n", pipe_name(pipe));
 
 		drm_crtc_vblank_put(crtc);
 	}
@@ -13795,10 +13828,11 @@ intel_prepare_plane_fb(struct drm_plane *plane,
 		 */
 		if (needs_modeset(crtc_state))
 			ret = i915_gem_object_wait_rendering(old_obj, true);
-
-		/* Swallow -EIO errors to allow updates during hw lockup. */
-		if (ret && ret != -EIO)
+		if (ret) {
+			/* GPU hangs should have been swallowed by the wait */
+			WARN_ON(ret == -EIO);
 			return ret;
+		}
 	}
 
 	/* For framebuffer backed by dmabuf, wait for fence */

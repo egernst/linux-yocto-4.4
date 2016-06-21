@@ -890,16 +890,7 @@ static int logical_ring_prepare(struct drm_i915_gem_request *req, int bytes)
  */
 int intel_logical_ring_begin(struct drm_i915_gem_request *req, int num_dwords)
 {
-	struct drm_i915_private *dev_priv;
 	int ret;
-
-	WARN_ON(req == NULL);
-	dev_priv = req->i915;
-
-	ret = i915_gem_check_wedge(&dev_priv->gpu_error,
-				   dev_priv->mm.interruptible);
-	if (ret)
-		return ret;
 
 	ret = logical_ring_prepare(req, num_dwords * sizeof(uint32_t));
 	if (ret)
@@ -1014,7 +1005,6 @@ int intel_execlists_submission(struct i915_execbuffer_params *params,
 	trace_i915_gem_ring_dispatch(params->request, params->dispatch_flags);
 
 	i915_gem_execbuffer_move_to_active(vmas, params->request);
-	i915_gem_execbuffer_retire_commands(params);
 
 	return 0;
 }
@@ -1055,7 +1045,7 @@ void intel_logical_ring_stop(struct intel_engine_cs *engine)
 		return;
 
 	ret = intel_engine_idle(engine);
-	if (ret && !i915_reset_in_progress(&to_i915(engine->dev)->gpu_error))
+	if (ret)
 		DRM_ERROR("failed to quiesce %s whilst cleaning up: %d\n",
 			  engine->name, ret);
 
@@ -1634,7 +1624,7 @@ static int gen8_init_common_ring(struct intel_engine_cs *engine)
 
 	intel_engine_init_hangcheck(engine);
 
-	return 0;
+	return intel_mocs_init_engine(engine);
 }
 
 static int gen8_init_render_ring(struct intel_engine_cs *engine)
@@ -2707,13 +2697,12 @@ int intel_lr_context_deferred_alloc(struct intel_context *ctx,
 		}
 
 		ret = engine->init_context(req);
+		i915_add_request_no_flush(req);
 		if (ret) {
 			DRM_ERROR("ring init context: %d\n",
 				ret);
-			i915_gem_request_cancel(req);
 			goto error_ringbuf;
 		}
-		i915_add_request_no_flush(req);
 	}
 	return 0;
 

@@ -33,27 +33,33 @@
 #include <uapi/drm/i915_drm.h>
 #include <uapi/drm/drm_fourcc.h>
 
-#include <drm/drmP.h>
-#include "i915_params.h"
-#include "i915_reg.h"
-#include "intel_bios.h"
-#include "intel_ringbuffer.h"
-#include "intel_lrc.h"
-#include "i915_gem_gtt.h"
-#include "i915_gem_render_state.h"
 #include <linux/io-mapping.h>
 #include <linux/i2c.h>
 #include <linux/i2c-algo-bit.h>
-#include <drm/intel-gtt.h>
-#include <drm/drm_legacy.h> /* for struct drm_dma_handle */
-#include <drm/drm_gem.h>
 #include <linux/backlight.h>
 #include <linux/hashtable.h>
 #include <linux/intel-iommu.h>
 #include <linux/kref.h>
 #include <linux/pm_qos.h>
-#include "intel_guc.h"
+#include <linux/shmem_fs.h>
+
+#include <drm/drmP.h>
+#include <drm/intel-gtt.h>
+#include <drm/drm_legacy.h> /* for struct drm_dma_handle */
+#include <drm/drm_gem.h>
+
+#include "i915_params.h"
+#include "i915_reg.h"
+
+#include "intel_bios.h"
 #include "intel_dpll_mgr.h"
+#include "intel_guc.h"
+#include "intel_lrc.h"
+#include "intel_ringbuffer.h"
+
+#include "i915_gem.h"
+#include "i915_gem_gtt.h"
+#include "i915_gem_render_state.h"
 
 /* General customization:
  */
@@ -1394,9 +1400,6 @@ struct i915_gpu_error {
 
 	/* For missed irq/seqno simulation. */
 	unsigned int test_irq_rings;
-
-	/* Used to prevent gem_check_wedged returning -EAGAIN during gpu reset   */
-	bool reload_in_reset;
 };
 
 enum modeset_restore {
@@ -1921,6 +1924,7 @@ struct drm_i915_private {
 	 * crappiness (can't read out DPLL_MD for pipes B & C).
 	 */
 	u32 chv_dpll_md[I915_MAX_PIPES];
+	u32 bxt_phy_grc;
 
 	u32 suspend_count;
 	bool suspended_to_idle;
@@ -2247,6 +2251,7 @@ struct drm_i915_gem_request {
 	/** On Which ring this request was generated */
 	struct drm_i915_private *i915;
 	struct intel_engine_cs *engine;
+	unsigned reset_counter;
 
 	 /** GEM sequence number associated with the previous request,
 	  * when the HWS breadcrumb is equal to this the GPU is processing
@@ -2327,7 +2332,6 @@ struct drm_i915_gem_request {
 struct drm_i915_gem_request * __must_check
 i915_gem_request_alloc(struct intel_engine_cs *engine,
 		       struct intel_context *ctx);
-void i915_gem_request_cancel(struct drm_i915_gem_request *req);
 void i915_gem_request_free(struct kref *req_ref);
 int i915_gem_request_add_to_client(struct drm_i915_gem_request *req,
 				   struct drm_file *file);
@@ -2680,7 +2684,7 @@ struct drm_i915_cmd_table {
 #define HAS_RUNTIME_PM(dev)	(IS_GEN6(dev) || IS_HASWELL(dev) || \
 				 IS_BROADWELL(dev) || IS_VALLEYVIEW(dev) || \
 				 IS_CHERRYVIEW(dev) || IS_SKYLAKE(dev) || \
-				 IS_KABYLAKE(dev))
+				 IS_KABYLAKE(dev) || IS_BROXTON(dev))
 #define HAS_RC6(dev)		(INTEL_INFO(dev)->gen >= 6)
 #define HAS_RC6p(dev)		(INTEL_INFO(dev)->gen == 6 || IS_IVYBRIDGE(dev))
 
@@ -2884,7 +2888,6 @@ int i915_gem_sw_finish_ioctl(struct drm_device *dev, void *data,
 			     struct drm_file *file_priv);
 void i915_gem_execbuffer_move_to_active(struct list_head *vmas,
 					struct drm_i915_gem_request *req);
-void i915_gem_execbuffer_retire_commands(struct i915_execbuffer_params *params);
 int i915_gem_ringbuffer_submission(struct i915_execbuffer_params *params,
 				   struct drm_i915_gem_execbuffer2 *args,
 				   struct list_head *vmas);
@@ -3015,9 +3018,11 @@ static inline void i915_gem_object_unpin_pages(struct drm_i915_gem_object *obj)
  * pages and then returns a contiguous mapping of the backing storage into
  * the kernel address space.
  *
- * The caller must hold the struct_mutex.
+ * The caller must hold the struct_mutex, and is responsible for calling
+ * i915_gem_object_unpin_map() when the mapping is no longer required.
  *
- * Returns the pointer through which to access the backing storage.
+ * Returns the pointer through which to access the mapped object, or an
+ * ERR_PTR() on error.
  */
 void *__must_check i915_gem_object_pin_map(struct drm_i915_gem_object *obj);
 
@@ -3084,23 +3089,45 @@ i915_gem_find_active_request(struct intel_engine_cs *engine);
 
 bool i915_gem_retire_requests(struct drm_device *dev);
 void i915_gem_retire_requests_ring(struct intel_engine_cs *engine);
-int __must_check i915_gem_check_wedge(struct i915_gpu_error *error,
-				      bool interruptible);
+
+static inline u32 i915_reset_counter(struct i915_gpu_error *error)
+{
+	return atomic_read(&error->reset_counter);
+}
+
+static inline bool __i915_reset_in_progress(u32 reset)
+{
+	return unlikely(reset & I915_RESET_IN_PROGRESS_FLAG);
+}
+
+static inline bool __i915_reset_in_progress_or_wedged(u32 reset)
+{
+	return unlikely(reset & (I915_RESET_IN_PROGRESS_FLAG | I915_WEDGED));
+}
+
+static inline bool __i915_terminally_wedged(u32 reset)
+{
+	return unlikely(reset & I915_WEDGED);
+}
 
 static inline bool i915_reset_in_progress(struct i915_gpu_error *error)
 {
-	return unlikely(atomic_read(&error->reset_counter)
-			& (I915_RESET_IN_PROGRESS_FLAG | I915_WEDGED));
+	return __i915_reset_in_progress(i915_reset_counter(error));
+}
+
+static inline bool i915_reset_in_progress_or_wedged(struct i915_gpu_error *error)
+{
+	return __i915_reset_in_progress_or_wedged(i915_reset_counter(error));
 }
 
 static inline bool i915_terminally_wedged(struct i915_gpu_error *error)
 {
-	return atomic_read(&error->reset_counter) & I915_WEDGED;
+	return __i915_terminally_wedged(i915_reset_counter(error));
 }
 
 static inline u32 i915_reset_count(struct i915_gpu_error *error)
 {
-	return ((atomic_read(&error->reset_counter) & ~I915_WEDGED) + 1) / 2;
+	return ((i915_reset_counter(error) & ~I915_WEDGED) + 1) / 2;
 }
 
 static inline bool i915_stop_ring_allow_ban(struct drm_i915_private *dev_priv)
@@ -3133,7 +3160,6 @@ void __i915_add_request(struct drm_i915_gem_request *req,
 #define i915_add_request_no_flush(req) \
 	__i915_add_request(req, NULL, false)
 int __i915_wait_request(struct drm_i915_gem_request *req,
-			unsigned reset_counter,
 			bool interruptible,
 			s64 *timeout,
 			struct intel_rps_client *rps);
