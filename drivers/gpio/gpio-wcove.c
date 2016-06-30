@@ -336,7 +336,7 @@ static int wcove_gpio_probe(struct platform_device *pdev)
 	wg->chip.base = -1;
 	wg->chip.ngpio = WCOVE_VGPIO_NUM;
 	wg->chip.can_sleep = true;
-	wg->chip.parent = dev;
+	wg->chip.dev = dev;
 	wg->chip.dbg_show = wcove_gpio_dbg_show;
 	wg->regmap = pmic->regmap;
 
