@@ -2595,8 +2595,6 @@ static void ilk_compute_wm_results(struct drm_device *dev,
 
 	/* LP0 register values */
 	for_each_intel_crtc(dev, intel_crtc) {
-		const struct intel_crtc_state *cstate =
-			to_intel_crtc_state(intel_crtc->base.state);
 		enum pipe pipe = intel_crtc->pipe;
 		const struct intel_wm_level *r =
 			&intel_crtc->wm.active.ilk.wm[0];
@@ -3736,9 +3734,9 @@ static void ilk_program_watermarks(struct drm_i915_private *dev_priv)
 
 	/* 5/6 split only in single pipe config on IVB+ */
 	if (INTEL_INFO(dev)->gen >= 7 &&
-	    config->num_pipes_active == 1 && config->sprites_enabled) {
-		ilk_compute_wm_maximums(dev, 1, config, INTEL_DDB_PART_5_6, &max);
-		ilk_wm_merge(dev, config, &max, &lp_wm_5_6);
+	    config.num_pipes_active == 1 && config.sprites_enabled) {
+		ilk_compute_wm_maximums(dev, 1, &config, INTEL_DDB_PART_5_6, &max);
+		ilk_wm_merge(dev, &config, &max, &lp_wm_5_6);
 
 		best_lp_wm = ilk_find_best_result(dev, &lp_wm_1_2, &lp_wm_5_6);
 	} else {

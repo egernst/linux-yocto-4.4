@@ -918,25 +918,6 @@ static const struct dmi_system_id intel_no_opregion_vbt[] = {
 	{ }
 };
 
-static int intel_no_opregion_vbt_callback(const struct dmi_system_id *id)
-{
-	DRM_DEBUG_KMS("Falling back to manually reading VBT from "
-		      "VBIOS ROM for %s\n", id->ident);
-	return 1;
-}
-
-static const struct dmi_system_id intel_no_opregion_vbt[] = {
-	{
-		.callback = intel_no_opregion_vbt_callback,
-		.ident = "ThinkCentre A57",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "LENOVO"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "97027RG"),
-		},
-	},
-	{ }
-};
-
 int intel_opregion_setup(struct drm_device *dev)
 {
 	struct drm_i915_private *dev_priv = dev->dev_private;

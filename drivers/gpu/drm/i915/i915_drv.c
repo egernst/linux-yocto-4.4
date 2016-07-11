@@ -368,21 +368,6 @@ static const struct intel_device_info intel_kabylake_gt3_info = {
 	.ring_mask = RENDER_RING | BSD_RING | BLT_RING | VEBOX_RING | BSD2_RING,
 };
 
-static const struct intel_device_info intel_kabylake_info = {
-	HSW_FEATURES,
-	.is_preliminary = 1,
-	.is_kabylake = 1,
-	.gen = 9,
-};
-
-static const struct intel_device_info intel_kabylake_gt3_info = {
-	HSW_FEATURES,
-	.is_preliminary = 1,
-	.is_kabylake = 1,
-	.gen = 9,
-	.ring_mask = RENDER_RING | BSD_RING | BLT_RING | VEBOX_RING | BSD2_RING,
-};
-
 /*
  * Make sure any device matches here are from most specific to most
  * general.  For example, since the Quanta match is based on the subsystem
@@ -526,12 +511,6 @@ void intel_detect_pch(struct drm_device *dev)
 					!IS_KABYLAKE(dev));
 			} else if ((id == INTEL_PCH_P2X_DEVICE_ID_TYPE) ||
 				   (id == INTEL_PCH_P3X_DEVICE_ID_TYPE) ||
-				   ((id == INTEL_PCH_QEMU_DEVICE_ID_TYPE) &&
-				    pch->subsystem_vendor == 0x1af4 &&
-				    pch->subsystem_device == 0x1100)) {
-				WARN_ON(!IS_SKYLAKE(dev) &&
-					!IS_KABYLAKE(dev));
-			} else if ((id == INTEL_PCH_P2X_DEVICE_ID_TYPE) ||
 				   ((id == INTEL_PCH_QEMU_DEVICE_ID_TYPE) &&
 				    pch->subsystem_vendor == 0x1af4 &&
 				    pch->subsystem_device == 0x1100)) {

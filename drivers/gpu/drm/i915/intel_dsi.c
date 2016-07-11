@@ -766,8 +766,6 @@ static bool intel_dsi_get_hw_state(struct intel_encoder *encoder,
 		active = true;
 		break;
 	}
-out:
-	intel_display_power_put(dev_priv, power_domain);
 
 out_put_power:
 	intel_display_power_put(dev_priv, power_domain);
@@ -786,8 +784,6 @@ static void bxt_dsi_get_pipe_config(struct intel_encoder *encoder,
 	unsigned int bpp, fmt;
 	enum port port;
 	u16 vfp, vsync, vbp;
-
-	pipe_config->has_dsi_encoder = true;
 
 	/*
 	 * Atleast one port is active as encoder->get_config called only if

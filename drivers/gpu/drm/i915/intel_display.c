@@ -4103,12 +4103,6 @@ static void ironlake_pch_enable(struct drm_crtc *crtc)
 	I915_WRITE(FDI_RX_TUSIZE1(pipe),
 		   I915_READ(PIPE_DATA_M1(pipe)) & TU_SIZE_MASK);
 
-	/*
-	 * Sometimes spurious CPU pipe underruns happen during FDI
-	 * training, at least with VGA+HDMI cloning. Suppress them.
-	 */
-	intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, false);
-
 	/* For PCH output, training FDI link */
 	dev_priv->display.fdi_link_train(crtc);
 
@@ -4142,8 +4136,6 @@ static void ironlake_pch_enable(struct drm_crtc *crtc)
 	ironlake_pch_transcoder_set_timings(intel_crtc, pipe);
 
 	intel_fdi_normal_train(crtc);
-
-	intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, true);
 
 	/* For PCH DP, enable TRANS_DP_CTL */
 	if (HAS_PCH_CPT(dev) && intel_crtc->config->has_dp_encoder) {
@@ -4763,9 +4755,6 @@ static void ironlake_crtc_enable(struct drm_crtc *crtc)
 		intel_set_pch_fifo_underrun_reporting(dev_priv, pipe, false);
 
 	if (intel_crtc->config->has_pch_encoder)
-		intel_set_pch_fifo_underrun_reporting(dev_priv, pipe, false);
-
-	if (intel_crtc->config->has_pch_encoder)
 		intel_prepare_shared_dpll(intel_crtc);
 
 	if (intel_crtc->config->has_dp_encoder)
@@ -4952,8 +4941,6 @@ static void haswell_crtc_enable(struct drm_crtc *crtc)
 		intel_wait_for_vblank(dev, hsw_workaround_pipe);
 		intel_wait_for_vblank(dev, hsw_workaround_pipe);
 	}
-
-	intel_fbc_enable(intel_crtc);
 }
 
 static void ironlake_pfit_disable(struct intel_crtc *crtc, bool force)
@@ -4999,10 +4986,8 @@ static void ironlake_crtc_disable(struct drm_crtc *crtc)
 
 	ironlake_pfit_disable(intel_crtc, false);
 
-	if (intel_crtc->config->has_pch_encoder) {
+	if (intel_crtc->config->has_pch_encoder)
 		ironlake_fdi_disable(crtc);
-		intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, true);
-	}
 
 	for_each_encoder_on_crtc(dev, crtc, encoder)
 		if (encoder->post_disable)
@@ -6192,8 +6177,6 @@ static void i9xx_crtc_enable(struct drm_crtc *crtc)
 
 	for_each_encoder_on_crtc(dev, crtc, encoder)
 		encoder->enable(encoder);
-
-	intel_fbc_enable(intel_crtc);
 }
 
 static void i9xx_pfit_disable(struct intel_crtc *crtc)
@@ -6255,8 +6238,6 @@ static void i9xx_crtc_disable(struct drm_crtc *crtc)
 
 	if (!IS_GEN2(dev))
 		intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, false);
-
-	intel_fbc_disable_crtc(intel_crtc);
 }
 
 static void intel_crtc_disable_noatomic(struct drm_crtc *crtc)
@@ -8195,8 +8176,6 @@ static bool i9xx_get_pipe_config(struct intel_crtc *crtc,
 
 	pipe_config->cpu_transcoder = (enum transcoder) crtc->pipe;
 	pipe_config->shared_dpll = NULL;
-
-	ret = false;
 
 	ret = false;
 
@@ -13680,9 +13659,6 @@ static int intel_atomic_commit(struct drm_device *dev,
 		struct intel_crtc_state *pipe_config =
 			to_intel_crtc_state(crtc->state);
 		bool update_pipe = !modeset && pipe_config->update_pipe;
-
-		if (modeset)
-			intel_display_power_get(dev_priv, POWER_DOMAIN_MODESET);
 
 		if (modeset && crtc->state->active) {
 			update_scanline_offset(to_intel_crtc(crtc));

@@ -2530,9 +2530,6 @@ static int i915_guc_info(struct seq_file *m, void *data)
 	if (mutex_lock_interruptible(&dev->struct_mutex))
 		return 0;
 
-	if (mutex_lock_interruptible(&dev->struct_mutex))
-		return 0;
-
 	/* Take a local copy of the GuC data, so we can dump it at leisure */
 	guc = dev_priv->guc;
 	if (guc.execbuf_client)

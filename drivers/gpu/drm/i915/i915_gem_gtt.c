@@ -3077,9 +3077,6 @@ static int gen8_gmch_probe(struct i915_ggtt *ggtt)
 	ggtt->base.bind_vma = ggtt_bind_vma;
 	ggtt->base.unbind_vma = ggtt_unbind_vma;
 
-	if (IS_CHERRYVIEW(dev_priv))
-		dev_priv->gtt.base.insert_entries = gen8_ggtt_insert_entries__BKL;
-
 	return ret;
 }
 

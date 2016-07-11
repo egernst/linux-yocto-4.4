@@ -1757,12 +1757,8 @@ static bool broxton_phy_is_enabled(struct drm_i915_private *dev_priv,
 
 		return false;
 	}
-	ret = true;
 
-out:
-	intel_display_power_put(dev_priv, POWER_DOMAIN_PLLS);
-
-	return ret;
+	return true;
 }
 
 static u32 broxton_get_grc(struct drm_i915_private *dev_priv, enum dpio_phy phy)

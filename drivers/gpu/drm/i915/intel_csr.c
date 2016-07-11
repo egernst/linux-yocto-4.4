@@ -287,9 +287,6 @@ static uint32_t *parse_csr_fw(struct drm_i915_private *dev_priv,
 	if (!fw)
 		return NULL;
 
-	stepping = stepping_info->stepping;
-	substepping = stepping_info->substepping;
-
 	/* Extract CSS Header information*/
 	css_header = (struct intel_css_header *)fw->data;
 	if (sizeof(struct intel_css_header) !=

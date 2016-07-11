@@ -1051,8 +1051,6 @@ static int i915_driver_init_early(struct drm_i915_private *dev_priv,
 	intel_init_audio_hooks(dev_priv);
 	i915_gem_load_init(dev);
 
-	intel_runtime_pm_get(dev_priv);
-
 	intel_display_crc_init(dev);
 
 	i915_dump_device_info(dev_priv);
@@ -1388,8 +1386,6 @@ int i915_driver_load(struct drm_device *dev, unsigned long flags)
 	i915_driver_register(dev_priv);
 
 	intel_runtime_pm_enable(dev_priv);
-
-	intel_runtime_pm_put(dev_priv);
 
 	intel_runtime_pm_put(dev_priv);
 

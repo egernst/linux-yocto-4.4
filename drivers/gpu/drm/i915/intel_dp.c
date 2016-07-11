@@ -1143,8 +1143,6 @@ static i915_reg_t skl_aux_data_reg(struct drm_i915_private *dev_priv,
 		MISSING_CASE(port);
 		return DP_AUX_CH_DATA(PORT_A, index);
 	}
-
-	return 0;
 }
 
 static i915_reg_t intel_aux_ctl_reg(struct drm_i915_private *dev_priv,
@@ -2651,34 +2649,11 @@ static void intel_enable_dp(struct intel_encoder *encoder)
 	if (IS_VALLEYVIEW(dev) || IS_CHERRYVIEW(dev))
 		vlv_init_panel_power_sequencer(intel_dp);
 
-	/*
-	 * We get an occasional spurious underrun between the port
-	 * enable and vdd enable, when enabling port A eDP.
-	 *
-	 * FIXME: Not sure if this applies to (PCH) port D eDP as well
-	 */
-	if (port == PORT_A)
-		intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, false);
-
 	intel_dp_enable_port(intel_dp);
-
-	if (port == PORT_A && IS_GEN5(dev_priv)) {
-		/*
-		 * Underrun reporting for the other pipe was disabled in
-		 * g4x_pre_enable_dp(). The eDP PLL and port have now been
-		 * enabled, so it's now safe to re-enable underrun reporting.
-		 */
-		intel_wait_for_vblank_if_active(dev_priv->dev, !pipe);
-		intel_set_cpu_fifo_underrun_reporting(dev_priv, !pipe, true);
-		intel_set_pch_fifo_underrun_reporting(dev_priv, !pipe, true);
-	}
 
 	edp_panel_vdd_on(intel_dp);
 	edp_panel_on(intel_dp);
 	edp_panel_vdd_off(intel_dp, true);
-
-	if (port == PORT_A)
-		intel_set_cpu_fifo_underrun_reporting(dev_priv, pipe, true);
 
 	pps_unlock(intel_dp);
 
@@ -2721,24 +2696,10 @@ static void vlv_enable_dp(struct intel_encoder *encoder)
 
 static void g4x_pre_enable_dp(struct intel_encoder *encoder)
 {
-	struct drm_i915_private *dev_priv = to_i915(encoder->base.dev);
 	struct intel_dp *intel_dp = enc_to_intel_dp(&encoder->base);
 	enum port port = dp_to_dig_port(intel_dp)->port;
 
 	intel_dp_prepare(encoder);
-
-	if (port == PORT_A && IS_GEN5(dev_priv)) {
-		/*
-		 * We get FIFO underruns on the other pipe when
-		 * enabling the CPU eDP PLL, and when enabling CPU
-		 * eDP port. We could potentially avoid the PLL
-		 * underrun with a vblank wait just prior to enabling
-		 * the PLL, but that doesn't appear to help the port
-		 * enable case. Just sweep it all under the rug.
-		 */
-		intel_set_cpu_fifo_underrun_reporting(dev_priv, !pipe, false);
-		intel_set_pch_fifo_underrun_reporting(dev_priv, !pipe, false);
-	}
 
 	/* Only ilk+ has port A */
 	if (port == PORT_A)
@@ -5868,9 +5829,6 @@ intel_dp_init_connector(struct intel_digital_port *intel_dig_port,
 		intel_dp->get_aux_send_ctl = skl_get_aux_send_ctl;
 	else
 		intel_dp->get_aux_send_ctl = g4x_get_aux_send_ctl;
-
-	if (HAS_DDI(dev))
-		intel_dp->prepare_link_retrain = intel_ddi_prepare_link_retrain;
 
 	if (HAS_DDI(dev))
 		intel_dp->prepare_link_retrain = intel_ddi_prepare_link_retrain;

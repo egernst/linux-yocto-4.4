@@ -119,7 +119,7 @@ static int intelfb_alloc(struct drm_fb_helper *helper,
 {
 	struct intel_fbdev *ifbdev =
 		container_of(helper, struct intel_fbdev, helper);
-	struct drm_framebuffer *fb = NULL;
+	struct drm_framebuffer *fb;
 	struct drm_device *dev = helper->dev;
 	struct drm_i915_private *dev_priv = to_i915(dev);
 	struct i915_ggtt *ggtt = &dev_priv->ggtt;

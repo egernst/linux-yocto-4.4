@@ -1934,8 +1934,6 @@ static irqreturn_t cherryview_irq_handler(int irq, void *arg)
 
 	enable_rpm_wakeref_asserts(dev_priv);
 
-	enable_rpm_wakeref_asserts(dev_priv);
-
 	return ret;
 }
 
